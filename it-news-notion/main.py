@@ -3,7 +3,8 @@
 필요 환경변수:
   NOTION_TOKEN        노션 내부 통합(Integration) 토큰
   NOTION_DATABASE_ID  업로드할 데이터베이스 ID
-  ANTHROPIC_API_KEY   Claude API 키 (없으면 번역·요약 없이 원문 제목으로 올린다)
+  ANTHROPIC_API_KEY   Claude API 키 (없으면 번역·요약 없이 원문 제목으로 올린다.
+                      있으면 요약이 비어 있는 기존 기사도 한국어 제목·요약으로 채운다)
 
 선택 환경변수 (노션 DB 속성 이름, 기본값은 괄호 안. 제목 속성은 자동으로 찾고,
 없는 속성은 자동으로 만든다):
@@ -274,6 +275,50 @@ def create_page(token, db_id, title_prop, item, ko):
     http(f"{NOTION_API}/pages", "POST", notion_headers(token), body)
 
 
+def plain_text(prop):
+    return "".join(t.get("plain_text", "") for t in prop.get("title") or prop.get("rich_text") or [])
+
+
+def pages_without_summary(token, db_id):
+    """요약이 비어 있는 페이지(예전에 올렸거나 번역에 실패한 기사)를 모두 가져온다."""
+    body = {"filter": {"property": PROP_SUMMARY, "rich_text": {"is_empty": True}}, "page_size": 100}
+    while True:
+        res = json.loads(http(f"{NOTION_API}/databases/{db_id}/query", "POST", notion_headers(token), body))
+        yield from res.get("results", [])
+        if not res.get("has_more"):
+            break
+        body["start_cursor"] = res["next_cursor"]
+
+
+def backfill(token, db_id, title_prop, client):
+    """이미 올라간 기사 중 요약이 없는 것에 한국어 제목과 요약을 채운다."""
+    done = failed = 0
+    for page in pages_without_summary(token, db_id):
+        props = page["properties"]
+        # 원제목이 있으면 그걸, 없으면(번역 전 기사) 현재 제목을 원문으로 본다
+        original = plain_text(props.get(PROP_ORIGINAL, {})) or plain_text(props[title_prop])
+        url = (props.get(PROP_URL) or {}).get("url")
+        source = ((props.get(PROP_SOURCE) or {}).get("select") or {}).get("name", "")
+        if not original or not url:
+            continue
+        ko = summarize(client, {"source": source, "title": original, "url": url, "content": ""})
+        if ko is None:
+            failed += 1
+            continue
+        update = {
+            title_prop: {"title": rich_text(ko["title_ko"])},
+            PROP_ORIGINAL: {"rich_text": rich_text(original)},
+            PROP_SUMMARY: {"rich_text": rich_text(ko["summary_ko"])},
+        }
+        try:
+            http(f"{NOTION_API}/pages/{page['id']}", "PATCH", notion_headers(token), {"properties": update})
+            done += 1
+        except urllib.error.HTTPError as e:
+            print(f"  노션 수정 실패: {original} ({e.code} {e.read().decode(errors='replace')})")
+            failed += 1
+    print(f"기존 기사 번역·요약: {done}건 완료, {failed}건 실패")
+
+
 def main():
     token = os.environ.get("NOTION_TOKEN")
     db_id = os.environ.get("NOTION_DATABASE_ID")
@@ -291,6 +336,9 @@ def main():
     except urllib.error.HTTPError as e:
         sys.exit(f"노션 DB 확인 실패 ({e.code} {e.read().decode(errors='replace')}) - "
                  "DB ID와 통합 연결(••• → 연결)을 확인하세요.")
+
+    if client:
+        backfill(token, db_id, title_prop, client)
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=DAYS_BACK)
     uploaded = skipped = failed = untranslated = 0

@@ -16,7 +16,7 @@ Claude가 제목을 한국어로 번역하고 본문을 한국어 3~4문장으�
    - `NOTION_TOKEN`: 노션 통합 토큰
    - `NOTION_DATABASE_ID`: 데이터베이스 ID
    - `ANTHROPIC_API_KEY`: Claude API 키 (https://console.anthropic.com 에서 발급).
-     없으면 번역·요약 없이 원문 제목으로 올립니다.
+     없으면 번역·요약 없이 원문 제목으로 올리고, 나중에 키를 넣으면 다음 실행 때 채워집니다.
 
 속성 이름을 다르게 쓰려면 워크플로의 `env`에 `NOTION_PROP_URL`, `NOTION_PROP_SOURCE`, `NOTION_PROP_DATE`, `NOTION_PROP_ORIGINAL`, `NOTION_PROP_SUMMARY`를 지정하세요.
 
@@ -26,3 +26,4 @@ Claude가 제목을 한국어로 번역하고 본문을 한국어 3~4문장으�
 - 수동: Actions 탭 → "IT 뉴스 노션 업로드" → Run workflow
 
 이미 올라간 URL은 건너뛰므로 여러 번 실행해도 중복되지 않습니다.
+`요약`이 비어 있는 기존 기사(키 없이 올라갔거나 번역에 실패한 기사)는 실행할 때마다 한국어 제목·요약으로 채웁니다.
