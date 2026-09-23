@@ -5,16 +5,14 @@
 ## 설정
 
 1. 노션에서 내부 통합(Integration)을 만들고, 업로드할 데이터베이스에 해당 통합을 연결합니다.
-2. 데이터베이스에 다음 속성을 만듭니다.
-   - `Name` (제목)
-   - `URL` (URL)
-   - `Source` (선택)
-   - `Date` (날짜)
+2. 데이터베이스 속성은 첫 실행 때 자동으로 맞춰집니다. 제목 열은 이름과 상관없이 그대로 쓰고,
+   `URL`(URL), `Source`(선택), `Date`(날짜) 열이 없으면 새로 만듭니다.
+   같은 이름의 열이 다른 유형으로 이미 있으면 실행이 멈추고 로그에 안내가 나옵니다.
 3. 저장소 Settings → Secrets and variables → Actions에 다음 시크릿을 추가합니다.
    - `NOTION_TOKEN`: 노션 통합 토큰
    - `NOTION_DATABASE_ID`: 데이터베이스 ID
 
-속성 이름을 다르게 쓰려면 워크플로의 `env`에 `NOTION_PROP_TITLE`, `NOTION_PROP_URL`, `NOTION_PROP_SOURCE`, `NOTION_PROP_DATE`를 지정하세요.
+속성 이름을 다르게 쓰려면 워크플로의 `env`에 `NOTION_PROP_URL`, `NOTION_PROP_SOURCE`, `NOTION_PROP_DATE`를 지정하세요.
 
 ## 실행
 

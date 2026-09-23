@@ -4,8 +4,8 @@
   NOTION_TOKEN        노션 내부 통합(Integration) 토큰
   NOTION_DATABASE_ID  업로드할 데이터베이스 ID
 
-선택 환경변수 (노션 DB 속성 이름, 기본값은 괄호 안):
-  NOTION_PROP_TITLE (Name)  제목 속성
+선택 환경변수 (노션 DB 속성 이름, 기본값은 괄호 안. 제목 속성은 자동으로 찾고,
+없는 속성은 자동으로 만든다):
   NOTION_PROP_URL   (URL)   URL 속성
   NOTION_PROP_SOURCE(Source) select 속성
   NOTION_PROP_DATE  (Date)  date 속성
@@ -34,7 +34,6 @@ NOTION_VERSION = "2022-06-28"
 ATOM = "{http://www.w3.org/2005/Atom}"
 USER_AGENT = "Mozilla/5.0 (compatible; it-news-notion/1.0)"
 
-PROP_TITLE = os.environ.get("NOTION_PROP_TITLE", "Name")
 PROP_URL = os.environ.get("NOTION_PROP_URL", "URL")
 PROP_SOURCE = os.environ.get("NOTION_PROP_SOURCE", "Source")
 PROP_DATE = os.environ.get("NOTION_PROP_DATE", "Date")
@@ -97,15 +96,43 @@ def notion_headers(token):
     }
 
 
+def prepare_database(token, db_id):
+    """DB 속성을 확인해 실제 제목 속성 이름을 찾고, 없는 속성(URL/Source/Date)은 만든다."""
+    db = json.loads(http(f"{NOTION_API}/databases/{db_id}", headers=notion_headers(token)))
+    props = db.get("properties", {})
+    print("노션 DB 속성: " + ", ".join(f"{name}({p['type']})" for name, p in props.items()))
+
+    title = next((name for name, p in props.items() if p["type"] == "title"), None)
+    if title is None:
+        sys.exit("노션 DB에 제목(title) 속성이 없습니다.")
+
+    wanted = {PROP_URL: "url", PROP_SOURCE: "select", PROP_DATE: "date"}
+    missing = {}
+    for name, typ in wanted.items():
+        if name not in props:
+            missing[name] = {typ: {}}
+        elif props[name]["type"] != typ:
+            sys.exit(
+                f"노션 DB의 '{name}' 속성 유형이 '{props[name]['type']}'입니다. "
+                f"'{typ}' 유형이어야 합니다. 노션에서 이 속성 이름을 바꾸거나 삭제하면 "
+                f"다음 실행 때 올바른 유형으로 자동 생성됩니다."
+            )
+    if missing:
+        body = {"properties": missing}
+        http(f"{NOTION_API}/databases/{db_id}", "PATCH", notion_headers(token), body)
+        print("노션 DB에 속성 추가: " + ", ".join(missing))
+    return title
+
+
 def already_uploaded(token, db_id, url):
     body = {"filter": {"property": PROP_URL, "url": {"equals": url}}, "page_size": 1}
     res = json.loads(http(f"{NOTION_API}/databases/{db_id}/query", "POST", notion_headers(token), body))
     return bool(res.get("results"))
 
 
-def create_page(token, db_id, item):
+def create_page(token, db_id, title_prop, item):
     props = {
-        PROP_TITLE: {"title": [{"text": {"content": item["title"][:2000]}}]},
+        title_prop: {"title": [{"text": {"content": item["title"][:2000]}}]},
         PROP_URL: {"url": item["url"]},
         PROP_SOURCE: {"select": {"name": item["source"]}},
     }
@@ -120,6 +147,12 @@ def main():
     db_id = os.environ.get("NOTION_DATABASE_ID")
     if not token or not db_id:
         sys.exit("NOTION_TOKEN, NOTION_DATABASE_ID 환경변수가 필요합니다.")
+
+    try:
+        title_prop = prepare_database(token, db_id)
+    except urllib.error.HTTPError as e:
+        sys.exit(f"노션 DB 확인 실패 ({e.code} {e.read().decode(errors='replace')}) - "
+                 "DB ID와 통합 연결(••• → 연결)을 확인하세요.")
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=DAYS_BACK)
     uploaded = skipped = failed = 0
@@ -141,7 +174,7 @@ def main():
                 if already_uploaded(token, db_id, item["url"]):
                     skipped += 1
                     continue
-                create_page(token, db_id, item)
+                create_page(token, db_id, title_prop, item)
                 uploaded += 1
             except urllib.error.HTTPError as e:
                 print(f"  노션 업로드 실패: {item['title']} ({e.code} {e.read().decode(errors='replace')})")
